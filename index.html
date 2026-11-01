@@ -94,6 +94,7 @@
 }
 
 *{box-sizing:border-box}
+[hidden]{display:none !important}
 body{
   margin:0; background:var(--canvas); color:var(--text);
   font-family:var(--font); -webkit-font-smoothing:antialiased; -webkit-tap-highlight-color:transparent;
@@ -555,6 +556,12 @@ input{font-family:inherit}
   .crop-top{padding-top:calc(16px + env(safe-area-inset-top, 0px))}
   .crop-bottom{padding-bottom:calc(36px + env(safe-area-inset-bottom, 0px))}
 }
+
+/* launch splash */
+.splash{position:absolute;inset:0;z-index:200;background:#000;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.splash img{width:64%;max-width:250px;animation:splashIn 720ms var(--ease-out) both}
+.splash.out{opacity:0;pointer-events:none;transition:opacity 380ms var(--ease-out)}
+@keyframes splashIn{from{opacity:0;transform:scale(.94);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
 </style>
 
 <div class="phone"><div class="screen-inner" id="screenInner">
@@ -914,7 +921,7 @@ input{font-family:inherit}
     state.settings = {};
     Object.keys(DEFAULT_SETTINGS).forEach(function(k){ state.settings[k] = s[k]!==undefined ? s[k] : DEFAULT_SETTINGS[k]; });
     var loaded = lsGet(KEYS.cars);
-    state.cars = loaded && loaded.length ? loaded : SEED_CARS.map(function(c){ return Object.assign({}, c); });
+    state.cars = loaded ? loaded : (DEMO_MODE ? SEED_CARS.map(function(c){ return Object.assign({}, c); }) : []);
     state.reminders = lsGet(KEYS.rem) || [];
     state.cars.forEach(function(c){ c.fuelLogs = c.fuelLogs || []; c.serviceLogs = c.serviceLogs || []; c.expenses = c.expenses || [];
       c.type = c.type || "auto"; c.unit = (c.unit === "h" || vType(c.type).hoursOnly) ? "h" : "km"; });
@@ -1374,7 +1381,7 @@ input{font-family:inherit}
     function stepper(id, value, unit){ return '<div class="stepper"><button id="'+id+'Dec" aria-label="Smanji">−</button><span class="sv">'+fmt(value)+' '+unit+'</span><button id="'+id+'Inc" aria-label="Povećaj">+</button></div>'; }
     var html =
       '<div class="scroll" id="scrollArea" style="padding-top:6px">'+
-        '<div class="card app-id'+enterCls(anim)+'"><img src="'+LOGO+'" alt="CarLog logo"><div><div class="nm">CarLog</div><div class="vr">Verzija 17 · prototip</div></div></div>'+
+        '<div class="card app-id'+enterCls(anim)+'"><img src="'+LOGO+'" alt="CarLog logo"><div><div class="nm">CarLog</div><div class="vr">Verzija 18 · prototip</div></div></div>'+
 
         '<div class="sec-h">Izgled</div>'+
         '<div class="card" style="padding:10px 12px">'+segHtml([["light","Svijetla"],["dark","Tamna"]], s.theme, s.theme, "data-theme-pick").replace('class="seg"','class="seg" style="margin-top:0;grid-template-columns:repeat(2,1fr)"')+'</div>'+
@@ -1402,8 +1409,7 @@ input{font-family:inherit}
         '<div class="sec-h">Podaci</div>'+
         '<div class="grouped">'+
           '<div class="row tap" id="copyData"><div class="ic" style="background:var(--fill);color:var(--text)">'+ICONS.copy+'</div><div class="tt"><div class="t1">Kopiraj podatke</div><div class="t2">JSON za sigurnosnu kopiju</div></div>'+ICONS.chev.replace('<svg','<svg class="chev"')+'</div>'+
-          '<div class="row tap danger" id="wipeData"><div class="ic" style="background:var(--danger-soft);color:var(--danger)">'+ICONS.trash+'</div><div class="tt"><div class="t1">Obriši sve zapise</div><div class="t2">Vozila ostaju, brišu se točenja, servisi i podsjetnici</div></div></div>'+
-          (state.wipeConfirm ? '<div class="confirm-box"><p>Ovo trajno briše '+nFuel+' '+plural(nFuel,"točenje","točenja","točenja")+', '+nSvc+' '+plural(nSvc,"servis","servisa","servisa")+' i sve podsjetnike.</p><div class="btn-row"><button class="btn plain" id="wipeNo">Odustani</button><button class="btn danger-solid" id="wipeYes">Obriši</button></div></div>' : '')+
+          '<div class="row tap danger" id="wipeData"><div class="ic" style="background:var(--danger-soft);color:var(--danger)">'+ICONS.trash+'</div><div class="tt"><div class="t1">Obriši podatke</div><div class="t2">Samo zapise ili sve, uključujući vozila</div></div></div>'+
         '</div>'+
 
         '<div class="sec-h">O aplikaciji</div>'+
@@ -1476,19 +1482,29 @@ input{font-family:inherit}
         navigator.clipboard.writeText(text).then(function(){ toast("Podaci kopirani"); }, function(){ toast("Kopiranje nije uspjelo"); });
       } else toast("Kopiranje nije podržano");
     });
-    document.getElementById("wipeData").addEventListener("click", function(){ state.wipeConfirm = true; render("none"); });
-    if(state.wipeConfirm){
-      document.getElementById("wipeNo").addEventListener("click", function(){ state.wipeConfirm = false; render("none"); });
-      document.getElementById("wipeYes").addEventListener("click", function(){
-        state.cars.forEach(function(c){ c.fuelLogs = []; c.serviceLogs = []; c.expenses = []; delete c.demoMeta; });
-        state.reminders = [];
-        state.settings.demo = false;
-        saveCars(); saveReminders(); saveSettings();
-        state.wipeConfirm = false;
-        toast("Zapisi obrisani");
-        render("none");
-      });
+    function wipe(withVehicles){
+      if(withVehicles) state.cars = [];
+      else state.cars.forEach(function(c){ c.fuelLogs = []; c.serviceLogs = []; c.expenses = []; delete c.demoMeta; });
+      state.reminders = [];
+      saveCars(); saveReminders();
+      toast(withVehicles ? "Svi podaci obrisani" : "Zapisi obrisani");
+      render("none");
     }
+    document.getElementById("wipeData").addEventListener("click", function(){
+      var nCars = state.cars.length;
+      openActionSheet('<b>Što želiš obrisati?</b>Ovo se ne može poništiti.', [
+        {label:"Samo zapise", danger:true, run:function(draw){
+          draw('<b>Obrisati sve zapise?</b>'+nFuel+' '+plural(nFuel,"točenje","točenja","točenja")+', '+nSvc+' '+plural(nSvc,"servis","servisa","servisa")+', troškovi i podsjetnici. Vozila ostaju.', [
+            {label:"Obriši zapise", danger:true, run:function(d, close){ close(function(){ wipe(false); }); }}
+          ]);
+        }},
+        {label:"Sve, uključujući vozila", danger:true, run:function(draw){
+          draw('<b>Obrisati sve?</b>'+nCars+' '+plural(nCars,"vozilo","vozila","vozila")+' i svi njihovi zapisi i podsjetnici.', [
+            {label:"Obriši sve", danger:true, run:function(d, close){ close(function(){ wipe(true); }); }}
+          ]);
+        }}
+      ]);
+    });
   }
 
   // ===== Statistics =====
@@ -2477,7 +2493,24 @@ input{font-family:inherit}
     tick(); setInterval(tick, 15000);
   })();
 
-  render("fade");
+  // ---------- launch ----------
+  if(REDUCE_MOTION) render("fade");
+  else {
+    var splash = document.createElement("div");
+    splash.className = "splash";
+    splash.innerHTML = '<img src="'+LOGO+'" alt="CarLog">';
+    document.getElementById("screenInner").appendChild(splash);
+    var started = false;
+    function finishSplash(){
+      if(started) return;
+      started = true;
+      render("fade");
+      splash.classList.add("out");
+      setTimeout(function(){ splash.remove(); }, 420);
+    }
+    splash.addEventListener("click", finishSplash);
+    setTimeout(finishSplash, 950);
+  }
 })();
 </script>
 
